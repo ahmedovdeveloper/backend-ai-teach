@@ -1,161 +1,258 @@
+// routes/videos/search-course.js
 const express = require("express");
 const router = express.Router();
 
-// Dynamic import for fetch
 const fetch = (...args) =>
   import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
-// Supported languages
+// Языки и их настройки (regionCode — проверенные и рабочие!)
 const LANG_MAP = {
-  ru: { code: "ru", name: "Russian", ytLang: "ru", franc: "rus" },
-  en: { code: "en", name: "English", ytLang: "en", franc: "eng" },
-  uz: { code: "uz", name: "Uzbek", ytLang: "uz", franc: "uzb" },
+  ru: { name: "Русский", region: "RU", relevance: "ru" },
+  en: { name: "English", region: "US", relevance: "en" },
+  uz: { name: "O'zbekcha", region: "UZ", relevance: "uz" },
 };
 
-// Language detection
-function detectLanguage(text, targetLang) {
-  if (!text) return false;
+// Простая детекция языка по ключевым словам
+function isCorrectLanguage(text = "", lang) {
   const lower = text.toLowerCase();
-
-  const dict = {
-    ru: ["урок", "курс", "обучение", "объясняю", "полный курс", "с нуля", "для начинающих", "математика", "программирование"],
-    en: ["course", "tutorial", "lesson", "beginner", "full course", "learn", "how to", "complete guide"],
-    uz: ["dars", "kurs", "o'zbekcha", "darslik", "boshlang'ich", "to'liq kurs", "o'rganish"],
+  const keywords = {
+    ru: ["урок", "курс", "обучение", "с нуля", "русский", "российский"],
+    en: ["tutorial", "course", "lesson", "beginner", "learn", "how to"],
+    uz: ["dars", "kurs", "o'zbekcha", "darslik", "to'liq", "boshlang'ich"],
   };
-
-  if (dict[targetLang].some(word => lower.includes(word))) return true;
-
-  try {
-    const { franc } = require("franc");
-    const detected = franc(text, { minLength: 10, whitelist: ["rus", "eng", "uzb"] });
-    if (detected === LANG_MAP[targetLang].franc) return true;
-  } catch (e) {}
-
-  if (targetLang === "uz" && /o['’]zbek|tili|uzb/.test(lower)) return true;
-  if (targetLang === "ru" && /русский|российский|русскоязычный/.test(lower)) return true;
-  if (targetLang === "en" && /english|subtitle|eng/.test(lower)) return true;
-
-  return false;
+  return keywords[lang]?.some(kw => lower.includes(kw)) ?? false;
 }
 
+const delay = ms => new Promise(res => setTimeout(res, ms));
+
 /**
- * @openapi
+ * @swagger
  * /videos/search-course:
  *   get:
- *     summary: Search educational courses on YouTube
- *     description: Returns top 5 YouTube playlists filtered by topic, level and language.
+ *     summary: Поиск образовательных курсов на YouTube
+ *     description: >
+ *       Возвращает до 5 лучших плейлистов-курсов по теме, уровню и языку.
+ *       Поддерживает русский, английский и узбекский языки.
  *     tags:
  *       - Videos
  *     parameters:
  *       - in: query
- *         name: theme
- *         required: true
- *         description: "Course topic. Example: matematika, python, english"
+ *         name: q
  *         schema:
  *           type: string
+ *         required: true
+ *         description: Тема курса (например, `python`, `математика`, `ingliz tili`)
+ *         example: python
  *       - in: query
  *         name: level
- *         required: false
- *         description: "Difficulty level: beginner, intermediate, advanced"
  *         schema:
  *           type: string
+ *           enum: [beginner, intermediate, advanced]
  *           default: beginner
+ *         description: Уровень сложности
  *       - in: query
  *         name: lang
- *         required: false
- *         description: "Language filter: ru, en, uz"
  *         schema:
  *           type: string
+ *           enum: [ru, en, uz]
  *           default: ru
+ *         description: Язык курса
+ *     responses:
+ *       200:
+ *         description: Успешный ответ с курсами
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 topic:
+ *                   type: string
+ *                 level:
+ *                   type: string
+ *                 language:
+ *                   type: string
+ *                   example: "Русский"
+ *                 totalCourses:
+ *                   type: integer
+ *                   example: 4
+ *                 courses:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       title:
+ *                         type: string
+ *                         example: "Python с нуля — Полный курс 2025"
+ *                       description:
+ *                         type: string
+ *                       channel:
+ *                         type: string
+ *                         example: "Веб-стандарты"
+ *                       thumbnail:
+ *                         type: string
+ *                         format: uri
+ *                       totalVideos:
+ *                         type: integer
+ *                         example: 28
+ *                       playlistUrl:
+ *                         type: string
+ *                         format: uri
+ *                         example: "https://www.youtube.com/playlist?list=PL..."
+ *                       language:
+ *                         type: string
+ *                       videos:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             title:
+ *                               type: string
+ *                             videoId:
+ *                               type: string
+ *                             url:
+ *                               type: string
+ *                               format: uri
+ *                             thumbnail:
+ *                               type: string
+ *                               format: uri
+ *       400:
+ *         description: Не указана тема (q или theme)
+ *       429:
+ *         description: Превышен лимит YouTube API
+ *       502:
+ *         description: YouTube API недоступен
+ *       504:
+ *         description: Таймаут запроса к YouTube
  */
+
 router.get("/search-course", async (req, res) => {
-  const topic = req.query.theme?.trim();   // <-- FIXED HERE
-  const level = req.query.level || "beginner";
-  const lang = req.query.lang || "ru";
-
-  if (!topic)
-    return res.status(400).json({ error: "Query parameter 'theme' is required" });
-
-  const API_KEY =
-    process.env.GOOGLE_CLOUD_KEY || "AIzaSyC0mm3lT3wZYhzT8CSrhHlC-zOJsM5IqcU";
-
-  const langConfig = LANG_MAP[lang] || LANG_MAP.ru;
-
   try {
-    const searchQuery = `${topic} ${
-      level === "beginner"
-        ? "с нуля"
-        : level === "intermediate"
-        ? "средний уровень"
-        : "продвинутый"
-    } курс`;
+    const topic = (req.query.q || "").toString().trim();
+    const level = (req.query.level || "beginner").toLowerCase();
+    const lang = (req.query.lang || "ru").toLowerCase();
 
-    const searchUrl =
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(searchQuery)}` +
-      `&type=playlist&maxResults=10&regionCode=${langConfig.code.toUpperCase()}` +
-      `&relevanceLanguage=${langConfig.ytLang}&key=${API_KEY}`;
+    if (!topic) {
+      return res.status(400).json({
+        error: "Параметр 'q' или 'theme' обязателен",
+        example: "/videos/search-course?q=python&lang=ru",
+      });
+    }
 
-    const searchResp = await fetch(searchUrl);
-    const searchData = await searchResp.json();
+    const API_KEY = process.env.GOOGLE_CLOUD_KEY || "AIzaSyC0mm3lT3wZYhzT8CSrhHlC-zOJsM5IqcU";
+    const config = LANG_MAP[lang] || LANG_MAP.ru;
 
-    if (searchData.error) {
-      return res.status(500).json({
-        error: "YouTube API error",
-        details: searchData.error,
+    const levelSuffix =
+      level.includes("beginner") ? "с нуля" :
+      level.includes("intermediate") ? "средний" :
+      level.includes("advanced") ? "продвинутый" : "с нуля";
+
+    const query = `${topic} ${levelSuffix} курс`.trim();
+
+    const searchUrl = new URL("https://www.googleapis.com/youtube/v3/search");
+    searchUrl.searchParams.append("part", "snippet");
+    searchUrl.searchParams.append("q", query);
+    searchUrl.searchParams.append("type", "playlist");
+    searchUrl.searchParams.append("maxResults", "8");
+    searchUrl.searchParams.append("regionCode", config.region);
+    searchUrl.searchParams.append("relevanceLanguage", config.relevance);
+    searchUrl.searchParams.append("key", API_KEY);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    const response = await fetch(searchUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return res.status(502).json({
+        error: "YouTube API недоступен",
+        youtubeError: err.error || response.statusText,
+      });
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      if (data.error.code === 403) {
+        return res.status(429).json({ error: "Превышен лимит YouTube API (quota exceeded)" });
+      }
+      return res.status(500).json({ error: "YouTube API error", details: data.error });
+    }
+
+    if (!data.items || data.items.length === 0) {
+      return res.json({
+        success: true,
+        topic,
+        level,
+        language: config.name,
+        totalCourses: 0,
+        courses: [],
       });
     }
 
     const courses = [];
 
-    for (const item of searchData.items || []) {
+    for (const item of data.items) {
       const playlistId = item.id?.playlistId;
       if (!playlistId) continue;
 
-      const playlistUrl =
-        `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}` +
-        `&maxResults=50&key=${API_KEY}`;
+      try {
+        const plUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${playlistId}&maxResults=50&key=${API_KEY}`;
+        const plRes = await fetch(plUrl);
+        const plData = await plRes.json();
 
-      const plResp = await fetch(playlistUrl);
-      const plData = await plResp.json();
+        if (!Array.isArray(plData.items)) continue;
 
-      if (!Array.isArray(plData.items)) continue;
+        const validVideos = plData.items
+          .filter(v => isCorrectLanguage(`${v.snippet.title} ${v.snippet.description || ""}`, lang))
+          .slice(0, 30)
+          .map(v => ({
+            title: v.snippet.title,
+            videoId: v.snippet.resourceId.videoId,
+            url: `https://www.youtube.com/watch?v=${v.snippet.resourceId.videoId}`,
+            thumbnail: v.snippet.thumbnails?.high?.url || v.snippet.thumbnails?.default?.url || "",
+          }));
 
-      const validVideos = plData.items
-        .filter(v => detectLanguage(`${v.snippet.title} ${v.snippet.description}`, lang))
-        .slice(0, 30)
-        .map(v => ({
-          title: v.snippet.title,
-          videoId: v.snippet.resourceId.videoId,
-          videoUrl: `https://www.youtube.com/watch?v=${v.snippet.resourceId.videoId}`,
-          thumbnail: v.snippet.thumbnails?.high?.url || v.snippet.thumbnails?.default?.url,
-        }));
+        if (validVideos.length >= 4) {
+          courses.push({
+            title: item.snippet.title,
+            description: item.snippet.description || "",
+            channel: item.snippet.channelTitle,
+            thumbnail: item.snippet.thumbnails?.high?.url || "",
+            totalVideos: validVideos.length,
+            videos: validVideos,
+            playlistUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
+            language: config.name,
+          });
+        }
 
-      if (validVideos.length >= 5) {
-        courses.push({
-          title: item.snippet.title,
-          description: item.snippet.description,
-          channel: item.snippet.channelTitle,
-          thumbnail: item.snippet.thumbnails?.high?.url,
-          totalVideos: validVideos.length,
-          videos: validVideos,
-          playlistUrl: `https://www.youtube.com/playlist?list=${playlistId}`,
-          language: langConfig.name,
-        });
+        await delay(250); // Анти-бан
+      } catch (e) {
+        console.log("Ошибка при загрузке плейлиста:", playlistId, e.message);
       }
     }
 
     courses.sort((a, b) => b.totalVideos - a.totalVideos);
 
     res.json({
+      success: true,
       topic,
       level,
-      language: langConfig.name,
+      language: config.name,
       totalCourses: courses.length,
       courses: courses.slice(0, 5),
     });
+
   } catch (err) {
-    console.error("YouTube search error:", err);
-    res.status(500).json({ error: "Server error", details: err.message });
+    if (err.name === "AbortError") {
+      return res.status(504).json({ error: "Таймаут запроса к YouTube" });
+    }
+    console.error("search-course error:", err);
+    res.status(500).json({ error: "Внутренняя ошибка сервера" });
   }
 });
 
