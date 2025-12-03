@@ -7,7 +7,7 @@ const path = require("path");
 const connectDB = require("./config/db")
 
 const app = express();
-connectDB("mongodb+srv://admin:admin@admiral.8xw5rol.mongodb.net/mars_hub?retryWrites=true&w=majority&appName=Admiral")
+connectDB("mongodb+srv://Abdulloh:634571@cluster0.76u0c.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 // Разрешаем CORS для фронтенда на порту 8082
 app.use(cors({
