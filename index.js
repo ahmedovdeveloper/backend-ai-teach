@@ -2,7 +2,12 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 
+
+// config
+const connectDB = require("./config/db")
+
 const app = express();
+connectDB("mongodb+srv://admin:admin@admiral.8xw5rol.mongodb.net/mars_hub?retryWrites=true&w=majority&appName=Admiral")
 
 // Разрешаем CORS для фронтенда на порту 8082
 app.use(cors({
@@ -18,15 +23,15 @@ app.use(express.json());
 const { swaggerUi, swaggerSpec } = require("./config/swagger");
 const videoRouter = require("./router/SearchVideo/SearchVideoRouter");
 const bookRouter = require("./router/SearchBook/SearchBookRouter");
-const chatRouter = require("./router/ChatGpt/ChatGrok");
 const videoPlayer = require("./router/Video/VideRouter");
 const testRouter = require("./router/TestGenerate/TestGenerate")
+const AuthRouter = require("./router/Auth/AuthRouter")
 // Swagger документация
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Роутеры
+app.use("/auth", AuthRouter)
 app.use("/videos", videoRouter);
-app.use("/chat", chatRouter);
 app.use("/books", bookRouter);
 app.use("/video", videoPlayer);
 app.use("/test", testRouter);

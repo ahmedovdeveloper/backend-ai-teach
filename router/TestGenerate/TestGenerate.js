@@ -5,7 +5,7 @@ const OpenAI = require("openai");
 
 const openai = new OpenAI({
   baseURL: "https://api.deepseek.com/v1",
-  apiKey: process.env.DEEPSEEK_API_KEY, // работает без ключа!
+  apiKey: process.env.DEEPSEEK_API_KEY || "Akhkjkljkjd", // работает без ключа!
 });
 
 /**
