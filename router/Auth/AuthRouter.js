@@ -30,44 +30,27 @@ const auth = require('../../middleware/Auth');
  *         theme:
  *           type: string
  *           enum: [english, math, science, history, programming, other]
- *           example: english
  *         level:
  *           type: string
  *           enum: [beginner, intermediate, advanced]
- *           example: beginner
  *         languages:
  *           type: array
  *           items:
  *             type: string
  *             enum: [ru, uz, en]
- *           example: ["uz", "ru"]
  * 
  *     UserResponse:
  *       type: object
  *       properties:
- *         id:
- *           type: string
- *           example: 671f8c2a9d8b1c2a8f9e1d2a
- *         email:
- *           type: string
- *           example: user@example.com
- *         name:
- *           type: string
- *           example: Алішер Ісмаїлов
- *         role:
- *           type: string
- *           enum: [user, admin]
- *           example: user
- *         lessons:
- *           type: array
- *           items:
- *             $ref: '#/components/schemas/Lesson'
- *         createdAt:
- *           type: string
- *           format: date-time
+ *         id: { type: string, example: "671f8c2a9d8b1c2a8f9e1d2a" }
+ *         email: { type: string, example: "user@example.com" }
+ *         name: { type: string, example: "Алішер Ісмаїлов" }
+ *         role: { type: string, enum: [user, admin], example: "user" }
+ *         lessons: { type: array, items: { $ref: '#/components/schemas/Lesson' } }
+ *         createdAt: { type: string, format: date-time }
  */
 
-// Генерація токена
+// Генерація JWT
 const generateToken = (user) => {
   return jwt.sign(
     { id: user._id, email: user.email, role: user.role },
@@ -88,47 +71,21 @@ const generateToken = (user) => {
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - email
- *               - password
- *               - name
+ *             required: [email, password, name]
  *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *                 example: alisher@example.com
- *               password:
- *                 type: string
- *                 minLength: 8
- *                 example: MyPass123!
- *               name:
- *                 type: string
- *                 example: Алішер Ісмаїлов
- *               lessons:
- *                 type: array
- *                 items:
- *                   $ref: '#/components/schemas/Lesson'
+ *               email: { type: string, format: email }
+ *               password: { type: string, minLength: 8 }
+ *               name: { type: string }
+ *               lessons: { type: array, items: { $ref: '#/components/schemas/Lesson' } }
  *     responses:
- *       201:
- *         description: Користувач успішно створений
- *         content:
- *           application/json:
- *             example:
- *               message: Реєстрація успішна
- *               token: eyJhbGciOiJIUzI1NiIsInR5cCI6...
- *               user:
- *                 id: 671f8c2a9d8b1c2a8f9e1d2a
- *                 email: alisher@example.com
- *                 name: Алішер Ісмаїлов
- *                 role: user
- *                 lessons: []
- *                 createdAt: "2025-04-05T10:00:00.000Z"
+ *       201: { description: Успішно зареєстровано }
+ *       400: { description: Помилка валідації або email зайнятий }
  */
 router.post(
   '/register',
   [
     body('email').isEmail().normalizeEmail().withMessage('Невірний email'),
-    body('password').isLength({ min: 8 }).withMessage('Пароль має бути мінімум 8 символів'),
+    body('password').isLength({ min: 8 }).withMessage('Пароль мінімум 8 символів'),
     body('name').trim().notEmpty().withMessage("Ім'я обов'язкове"),
     body('lessons').optional().isArray(),
     body('lessons.*.theme').optional().isString(),
@@ -184,7 +141,7 @@ router.post(
  * @swagger
  * /auth/login:
  *   post:
- *     summary: Увійти в акаунт
+ *     summary: Увійти в систему
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -192,27 +149,19 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - email
- *               - password
+ *             required: [email, password]
  *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *               password:
- *                 type: string
- *                 format: password
+ *               email: { type: string, format: email }
+ *               password: { type: string, format: password }
  *     responses:
- *       200:
- *         description: Успішний вхід
- *       400:
- *         description: Невірний email або пароль
+ *       200: { description: Успішний вхід }
+ *       400: { description: Невірні дані }
  */
 router.post(
   '/login',
   [
-    body('email').isEmail().normalizeEmail().withMessage('Невірний email'),
-    body('password').exists().withMessage('Пароль обов’язковий')
+    body('email').isEmail().normalizeEmail(),
+    body('password').exists()
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -258,13 +207,14 @@ router.post(
  * @swagger
  * /auth/me:
  *   get:
- *     summary: Отримати дані поточного користувача
+ *     summary: Отримати поточного користувача
+ *     description: Токен береться з cookie або заголовка Authorization
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Дані авторизованого користувача
+ *         description: Дані користувача
  *         content:
  *           application/json:
  *             schema:
@@ -272,6 +222,8 @@ router.post(
  *               properties:
  *                 user:
  *                   $ref: '#/components/schemas/UserResponse'
+ *       401: { description: Не авторизований }
+ *       404: { description: Користувач не знайдений }
  */
 router.get('/me', auth, async (req, res) => {
   try {
@@ -289,7 +241,7 @@ router.get('/me', auth, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Me error:', err);
+    console.error('GET /me error:', err);
     res.status(500).json({ message: 'Помилка сервера' });
   }
 });
@@ -298,18 +250,27 @@ router.get('/me', auth, async (req, res) => {
  * @swagger
  * /auth/logout:
  *   post:
- *     summary: Вийти з акаунта (очистити куку)
+ *     summary: Вийти з системи
+ *     description: Очищає httpOnly cookie `token`. Body не потрібен.
  *     tags: [Auth]
  *     responses:
  *       200:
  *         description: Успішний вихід
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message: { type: string, example: "Вихід успішний" }
  */
 router.post('/logout', (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    sameSite: 'lax',
+    path: '/' // важливо!
   });
+
   res.json({ message: 'Вихід успішний' });
 });
 
