@@ -26,6 +26,7 @@ const bookRouter = require("./router/SearchBook/SearchBookRouter");
 const videoPlayer = require("./router/Video/VideRouter");
 const testRouter = require("./router/TestGenerate/TestGenerate")
 const AuthRouter = require("./router/Auth/AuthRouter")
+const chatRouter = require("./router/Chat/ChatRouter")
 // Swagger документация
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -35,6 +36,7 @@ app.use("/videos", videoRouter);
 app.use("/books", bookRouter);
 app.use("/video", videoPlayer);
 app.use("/test", testRouter);
+app.use("/api", chatRouter);
 
 // Статические файлы: видео
 // Важно: путь до видео учитывает, что папка temp-video лежит в router/
